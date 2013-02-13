@@ -29,6 +29,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
+using System.Security;
 using EventStore.Common.Utils;
 using EventStore.Core.Bus;
 using EventStore.Core.Messages;
@@ -60,7 +61,8 @@ namespace EventStore.Core.Services.Transport.Http
         private readonly HttpAsyncServer _server;
         private readonly MultiQueuedHandler _requestsMultiHandler;
 
-        public HttpService(ServiceAccessibility accessibility, IPublisher inputBus, int receiveHandlerCount, params string[] prefixes)
+        //TODO GFY both input and output are main queue maybe have one parameter?
+        public HttpService(ServiceAccessibility accessibility, IPublisher inputBus, IPublisher outputBus, int receiveHandlerCount, params string[] prefixes)
         {
             Ensure.NotNull(inputBus, "inputBus");
             Ensure.NotNull(prefixes, "prefixes");
@@ -88,7 +90,7 @@ namespace EventStore.Core.Services.Transport.Http
                                                            slowMsgThreshold: TimeSpan.FromMilliseconds(50));
                     });
 
-            _server = new HttpAsyncServer(prefixes);
+            _server = new HttpAsyncServer(prefixes, AuthenticationSchemes.Basic, new SelfHostedAuthenticationProvider(outputBus));
             _server.RequestReceived += RequestReceived;
         }
 
@@ -182,6 +184,22 @@ namespace EventStore.Core.Services.Transport.Http
                 Handler = handler;
                 UriTemplate = new UriTemplate(action.UriTemplate);
             }
+        }
+    }
+
+
+    public class SelfHostedAuthenticationProvider : IAuthenticationProvider
+    {
+        private IPublisher _bus;
+
+        public SelfHostedAuthenticationProvider(IPublisher bus)
+        {
+            _bus = bus;
+        }
+
+        public bool Authenticate(SecureString user, SecureString password)
+        {
+            return true;
         }
     }
 }

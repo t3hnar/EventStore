@@ -28,13 +28,21 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Security;
 using EventStore.Common.Log;
 using EventStore.Common.Utils;
 
 namespace EventStore.Transport.Http.Server
 {
+
+    public interface IAuthenticationProvider
+    {
+        bool Authenticate(SecureString user, SecureString password);
+    }
     public class HttpAsyncServer
     {
+        private readonly AuthenticationSchemes _authenticationScheme;
+        private readonly IAuthenticationProvider _authenticationProvider;
         private static readonly ILogger Logger = LogManager.GetLoggerFor<HttpAsyncServer>();
 
         public event Action<HttpAsyncServer, HttpListenerContext> RequestReceived;
@@ -44,11 +52,16 @@ namespace EventStore.Transport.Http.Server
 
         private readonly HttpListener _listener;
 
-        public HttpAsyncServer(string[] prefixes)
+        public HttpAsyncServer(string[] prefixes, AuthenticationSchemes authenticationScheme, IAuthenticationProvider authenticationProvider)
         {
+            Ensure.NotNull(authenticationProvider, "AuthenticationProvider");
+            _authenticationScheme = authenticationScheme;
+            _authenticationProvider = authenticationProvider;
+            //TODO GFY probably dont want an "authentication scheme" but the selector.
             Ensure.NotNull(prefixes, "prefixes");
-
+            
             _listener = new HttpListener();
+            _listener.AuthenticationSchemes = authenticationScheme;
             foreach (var prefix in prefixes)
             {
                 _listener.Prefixes.Add(prefix);
@@ -130,6 +143,8 @@ namespace EventStore.Transport.Http.Server
 
         protected virtual void OnRequestReceived(HttpListenerContext context)
         {
+            var id = (HttpListenerBasicIdentity)context.User.Identity;
+            Console.WriteLine("received request authenticated = " + context.Request.IsAuthenticated + " from " + id.Name + " " + id.Password);
             var handler = RequestReceived;
             if (handler != null)
                 handler(this, context);
