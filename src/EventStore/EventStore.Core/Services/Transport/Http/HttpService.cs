@@ -62,7 +62,7 @@ namespace EventStore.Core.Services.Transport.Http
         private readonly MultiQueuedHandler _requestsMultiHandler;
 
         //TODO GFY both input and output are main queue maybe have one parameter?
-        public HttpService(ServiceAccessibility accessibility, IPublisher inputBus, IPublisher outputBus, int receiveHandlerCount, params string[] prefixes)
+        public HttpService(ServiceAccessibility accessibility, IPublisher inputBus, int receiveHandlerCount, params string[] prefixes)
         {
             Ensure.NotNull(inputBus, "inputBus");
             Ensure.NotNull(prefixes, "prefixes");
@@ -80,7 +80,7 @@ namespace EventStore.Core.Services.Transport.Http
                     queueNum =>
                     {
                         var bus = new InMemoryBus(string.Format("Incoming HTTP #{0} Bus", queueNum + 1), watchSlowMsg: false);
-                        var requestProcessor = new HttpRequestProcessor(this);
+                        var requestProcessor = new HttpRequestProcessor(this, new SelfHostedAuthenticationProvider(_inputBus));
                         bus.Subscribe<IncomingHttpRequestMessage>(requestProcessor);
                         bus.Subscribe<HttpMessage.PurgeTimedOutRequests>(requestProcessor);
                         return new QueuedHandlerThreadPool(bus,
@@ -90,7 +90,7 @@ namespace EventStore.Core.Services.Transport.Http
                                                            slowMsgThreshold: TimeSpan.FromMilliseconds(50));
                     });
 
-            _server = new HttpAsyncServer(prefixes, AuthenticationSchemes.Basic, new SelfHostedAuthenticationProvider(outputBus));
+            _server = new HttpAsyncServer(prefixes, AuthenticationSchemes.Basic);
             _server.RequestReceived += RequestReceived;
         }
 
@@ -188,6 +188,10 @@ namespace EventStore.Core.Services.Transport.Http
     }
 
 
+    public interface IAuthenticationProvider
+    {
+        bool Authenticate(HttpListenerBasicIdentity identity);
+    }
     public class SelfHostedAuthenticationProvider : IAuthenticationProvider
     {
         private IPublisher _bus;
@@ -197,9 +201,10 @@ namespace EventStore.Core.Services.Transport.Http
             _bus = bus;
         }
 
-        public bool Authenticate(SecureString user, SecureString password)
+        public bool Authenticate(HttpListenerBasicIdentity identity)
         {
-            return true;
+            //Sends Message to Validate HTTP
+            return identity.Name == "greg" && identity.Password == "hello";
         }
     }
 }

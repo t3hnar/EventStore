@@ -30,6 +30,7 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Linq;
 using System.Net;
+using System.Security;
 using EventStore.Common.Log;
 using EventStore.Common.Utils;
 using EventStore.Core.Bus;
@@ -64,12 +65,15 @@ namespace EventStore.Core.Services.Transport.Http
         private static readonly ILogger Log = LogManager.GetLoggerFor<HttpRequestProcessor>();
         
         private readonly HttpService _httpService;
+        private readonly IAuthenticationProvider _authProvider;
         private readonly Queue<HttpEntity> _pending = new Queue<HttpEntity>();
 
-        public HttpRequestProcessor(HttpService httpService)
+        public HttpRequestProcessor(HttpService httpService, IAuthenticationProvider authProvider)
         {
+            Ensure.NotNull(authProvider, "authenticationProvider");
             Ensure.NotNull(httpService, "httpService");
             _httpService = httpService;
+            _authProvider = authProvider;
         }
 
         public void Handle(HttpMessage.PurgeTimedOutRequests message)
@@ -116,6 +120,7 @@ namespace EventStore.Core.Services.Transport.Http
         {
             try
             {
+                
                 var allMatches = _httpService.GetAllUriMatches(context.Request.Url);
                 if (allMatches.Count == 0)
                 {
@@ -166,6 +171,12 @@ namespace EventStore.Core.Services.Transport.Http
 
                 var entity = CreateEntity(DateTime.UtcNow, context, requestCodec, responseCodec, allowedMethods, satisfied => { });
                 _pending.Enqueue(entity);
+                //needs to go BEFORE this.
+                var identity = (HttpListenerBasicIdentity)context.User.Identity;
+                if(!_authProvider.Authenticate(identity))
+                {
+                    Forbidden(context);
+                }
                 match.RequestHandler(entity, match.TemplateMatch);
             }
             catch (Exception exception)
@@ -192,6 +203,14 @@ namespace EventStore.Core.Services.Transport.Http
             var entity = CreateEntity(DateTime.UtcNow, context, Codec.NoCodec, Codec.NoCodec, allowed, _ => { });
             entity.Manager.ReplyStatus(HttpStatusCode.MethodNotAllowed,
                                        "Method Not Allowed",
+                                       e => Log.ErrorException(e, "Error while closing http connection (http service core)."));
+        }
+
+        private void Forbidden(HttpListenerContext context)
+        {
+            var entity = CreateEntity(DateTime.UtcNow, context, Codec.NoCodec, Codec.NoCodec, Empty, _ => { });
+            entity.Manager.ReplyStatus(HttpStatusCode.Forbidden,
+                                       "Forbidden",
                                        e => Log.ErrorException(e, "Error while closing http connection (http service core)."));
         }
 

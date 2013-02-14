@@ -185,5 +185,13 @@ namespace EventStore.Core.Messages
                 return string.Format("Text: {0}", Text);
             }
         }
+
+        public class AuthenticationSucceeded : Message
+        {
+        }
+
+        public class AuthenticationFailed : Message
+        {
+        }
     }
 }
